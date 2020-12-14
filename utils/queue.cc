@@ -46,7 +46,7 @@ QueueBase::GetTypeId (void)
                    "Use the MaxSize attribute instead")
     .AddAttribute ("MaxPackets",
                    "The maximum number of packets accepted by this queue.",
-                   UintegerValue (100),
+                   UintegerValue (16),
                    MakeUintegerAccessor (&QueueBase::SetMaxPackets,
                                          &QueueBase::GetMaxPackets),
                    MakeUintegerChecker<uint32_t> (),
@@ -54,7 +54,7 @@ QueueBase::GetTypeId (void)
                    "Use the MaxSize attribute instead")
     .AddAttribute ("MaxBytes",
                    "The maximum number of bytes accepted by this queue.",
-                   UintegerValue (100 * 65535),
+                   UintegerValue (16384),
                    MakeUintegerAccessor (&QueueBase::SetMaxBytes,
                                          &QueueBase::GetMaxBytes),
                    MakeUintegerChecker<uint32_t> (),
@@ -147,6 +147,13 @@ QueueBase::GetCurrentSize (void) const
       return QueueSize (QueueSizeUnit::BYTES, m_nBytes);
     }
   NS_ABORT_MSG ("Unknown queue size unit");
+}
+
+uint32_t
+QueueBase::GetCurrentDRAMSize (void) const
+{
+    NS_LOG_FUNCTION (this);
+    return m_nBytes_dram;
 }
 
 uint32_t
@@ -273,12 +280,19 @@ QueueBase::GetMaxPackets (void) const
   return m_maxPackets;
 }
 
+
 void
 QueueBase::SetMaxBytes (uint32_t maxBytes)
 {
   NS_LOG_FUNCTION (this << maxBytes);
 
-  m_maxBytes = maxBytes;
+  if (maxBytes > m_maxBytes){
+      m_maxBytes = 16384;
+      m_maxBytes_dram = maxBytes-m_maxBytes;
+      std::cout<<"buffer size sram: " <<m_maxBytes <<" dram: "<< m_maxBytes_dram<< std::endl;
+  }
+
+  // m_maxBytes = maxBytes;
 
   if (m_maxSize.GetUnit () == QueueSizeUnit::BYTES)
     {
@@ -290,6 +304,9 @@ uint32_t
 QueueBase::GetMaxBytes (void) const
 {
   NS_LOG_FUNCTION (this);
+  if(m_maxBytes_dram != 0){
+      return m_maxBytes+m_maxBytes_dram;
+  }
   return m_maxBytes;
 }
 

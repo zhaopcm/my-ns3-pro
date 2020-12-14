@@ -33,6 +33,7 @@
 #include <string>
 #include <sstream>
 #include <list>
+#include <deque>
 
 namespace ns3 {
 
@@ -60,67 +61,22 @@ public:
   QueueBase ();
   virtual ~QueueBase ();
 
-  /**
-   * \brief Append the item type to the provided type ID if the latter does not
-   *        end with '>'
-   *
-   * \param typeId the type ID
-   * \param itemType the item type
-   *
-   * This method is meant to be invoked by helpers to save users from
-   * specifying the type of items stored in a queue. For instance,
-   * PointToPointHelper::SetQueue calls
-   *
-   * \code
-   *   QueueBase::AppendItemTypeIfNotPresent (type, "Packet");
-   * \endcode
-   *
-   * where type specifies the queue type (e.g., "ns3::DropTailQueue").
-   * This allows users to call SetQueue ("ns3::DropTailQueue")
-   * instead of SetQueue ("ns3::DropTailQueue<Packet>")
-   */
   static void AppendItemTypeIfNotPresent (std::string& typeId, const std::string& itemType);
 
-  /**
-   * \return true if the queue is empty; false otherwise
-   */
   bool IsEmpty (void) const;
 
-  /**
-   * \return The number of packets currently stored in the Queue
-   */
   uint32_t GetNPackets (void) const;
 
-  /**
-   * \return The number of bytes currently occupied by the packets in the Queue
-   */
   uint32_t GetNBytes (void) const;
 
-  /**
-   * \return The current size of the Queue in terms of packets, if the maximum
-   *         size is specified in packets, or bytes, otherwise
-   */
   QueueSize GetCurrentSize (void) const;
 
-  /**
-   * \return The total number of bytes received by this Queue since the
-   * simulation began, or since ResetStatistics was called, according to
-   * whichever happened more recently
-   */
+  uint32_t GetCurrentDRAMSize(void) const;
+
   uint32_t GetTotalReceivedBytes (void) const;
 
-  /**
-   * \return The total number of packets received by this Queue since the
-   * simulation began, or since ResetStatistics was called, according to
-   * whichever happened more recently
-   */
   uint32_t GetTotalReceivedPackets (void) const;
 
-  /**
-   * \return The total number of bytes dropped by this Queue since the
-   * simulation began, or since ResetStatistics was called, according to
-   * whichever happened more recently
-   */
   uint32_t GetTotalDroppedBytes (void) const;
 
   /**
@@ -175,13 +131,6 @@ public:
     QUEUE_MODE_BYTES,       /**< Use number of bytes for maximum queue size */
   };
 
-  /**
-   * Set the operating mode of this device.
-   *
-   * \param mode The operating mode of this device.
-   * \deprecated This method will go away in future versions of ns-3.
-   * See instead SetMaxSize()
-   */
   void SetMode (QueueBase::QueueMode mode);
 
   /**
@@ -265,7 +214,7 @@ public:
 
 private:
   TracedValue<uint32_t> m_nBytes;               //!< Number of bytes in the queue
-  uint32_t m_nTotalReceivedBytes;               //!< Total received bytes
+  uint32_t  ;               //!< Total received bytes
   TracedValue<uint32_t> m_nPackets;             //!< Number of packets in the queue
   uint32_t m_nTotalReceivedPackets;             //!< Total received packets
   uint32_t m_nTotalDroppedBytes;                //!< Total dropped bytes
@@ -275,9 +224,22 @@ private:
   uint32_t m_nTotalDroppedPacketsBeforeEnqueue; //!< Total dropped packets before enqueue
   uint32_t m_nTotalDroppedPacketsAfterDequeue;  //!< Total dropped packets after dequeue
 
+  TracedValue<uint32_t> m_nBytes_dram;               //!< Number of bytes in the dram queue
+  uint32_t m_nTotalReceivedBytes_dram;               //!< Total received bytes
+  TracedValue<uint32_t> m_nPackets_dram;             //!< Number of packets in the queue
+  uint32_t m_nTotalReceivedPackets_dram;             //!< Total received packets
+  uint32_t m_nSendpktInDram;                         //!< num of send pkt into Dram;
+  uint32_t m_nSendBytesInDram;                         //!< num of send pkt into Dram;
+  uint32_t m_nTotalSendPktIndRram;                   //!< Total dropped bytes before enqueue
+  uint32_t m_nTotalSendByteIndRram;                   //!< Total dropped bytes before enqueue
+
+
   uint32_t m_maxPackets;              //!< max packets in the queue
+  uint32_t m_maxPackets_dram;         // dram_max packets in the queue
   uint32_t m_maxBytes;                //!< max bytes in the queue
+  uint32_t m_maxBytes_dram;           // max bytes in the dram queue
   QueueSize m_maxSize;                //!< max queue size
+  QueueSize m_maxSize_dram;           //!< max queue size in dram
 
   /// Friend class
   template <typename Item>
@@ -285,29 +247,6 @@ private:
 };
 
 
-/**
- * \ingroup queue
- * \brief Template class for packet Queues
- *
- * This class defines the subset of the base APIs for packet queues in the ns-3 system
- * that is dependent on the type of enqueued objects.
- *
- * Queue is a template class. The type of the objects stored within the queue
- * is specified by the type parameter, which can be any class providing a
- * GetSize () method (e.g., Packet, QueueDiscItem, etc.). Subclasses need to
- * implement the DoEnqueue, DoDequeue, DoRemove and DoPeek methods.
- *
- * Users of the Queue template class usually hold a queue through a smart pointer,
- * hence forward declaration is recommended to avoid pulling the implementation
- * of the templates included in this file. Thus, do not include queue.h but add
- * the following forward declaration in your .h file:
- *
- * \code
- *   template <typename Item> class Queue;
- * \endcode
- *
- * Then, include queue.h in the corresponding .cc file.
- */
 template <typename Item>
 class Queue : public QueueBase
 {
@@ -327,6 +266,8 @@ public:
    * \return True if the operation was successful; false otherwise
    */
   virtual bool Enqueue (Ptr<Item> item) = 0;
+
+  uint16_t Classify (Ptr<Item> item);
 
   /**
    * Remove an item from the Queue (each subclass defines the position),
@@ -359,52 +300,16 @@ protected:
   /// Const iterator.
   typedef typename std::list<Ptr<Item> >::const_iterator ConstIterator;
 
-  /**
-   * \brief Get a const iterator which refers to the first item in the queue.
-   *
-   * Subclasses can browse the items in the queue by using an iterator
-   *
-   * \code
-   *   for (auto i = Head (); i != Tail (); ++i)
-   *     {
-   *       (*i)->method ();  // some method of the Item class
-   *     }
-   * \endcode
-   *
-   * \returns a const iterator which refers to the first item in the queue.
-   */
   ConstIterator Head (void) const;
 
-  /**
-   * \brief Get a const iterator which indicates past-the-last item in the queue.
-   *
-   * Subclasses can browse the items in the queue by using an iterator
-   *
-   * \code
-   *   for (auto i = Head (); i != Tail (); ++i)
-   *     {
-   *       (*i)->method ();  // some method of the Item class
-   *     }
-   * \endcode
-   *
-   * \returns a const iterator which indicates past-the-last item in the queue.
-   */
   ConstIterator Tail (void) const;
 
-  /**
-   * Push an item in the queue
-   * \param pos the position where the item is inserted
-   * \param item the item to enqueue
-   * \return true if success, false if the packet has been dropped.
-   */
   bool DoEnqueue (ConstIterator pos, Ptr<Item> item);
 
-  /**
-   * Pull the item to dequeue from the queue
-   * \param pos the position of the item to dequeue
-   * \return the item.
-   */
+
   Ptr<Item> DoDequeue (ConstIterator pos);
+
+  void DoDramDequeue();
 
   /**
    * Pull the item to drop from the queue
@@ -420,28 +325,27 @@ protected:
    */
   Ptr<const Item> DoPeek (ConstIterator pos) const;
 
-  /**
-   * \brief Drop a packet before enqueue
-   * \param item item that was dropped
-   *
-   * This method is called by the base class when a packet is dropped because
-   * the queue is full and by the subclasses to notify parent (this class) that
-   * a packet has been dropped for other reasons before being enqueued.
-   */
   void DropBeforeEnqueue (Ptr<Item> item);
+
+  // Send the congest pkt in to dram queue;
+
+  void SendIntoDramqueue (Ptr<Item> item);
 
   /**
    * \brief Drop a packet after dequeue
    * \param item item that was dropped
-   *
-   * This method is called by the base class when a Remove operation is requested
+   *d This method is called by the base class when a Remove operation is requested
    * and by the subclasses to notify parent (this class) that a packet has been
    * dropped for other reasons after being dequeued.
    */
   void DropAfterDequeue (Ptr<Item> item);
 
+  void DropAfterDequeueDram (Ptr<Item> item);
+
 private:
   std::list<Ptr<Item> > m_packets;          //!< the items in the queue
+  std::deque<Ptr<Item> > m_packets_dram;     //<the dram queue>
+
   NS_LOG_TEMPLATE_DECLARE;                  //!< the log component
 
   /// Traced callback: fired when a packet is enqueued
@@ -505,24 +409,30 @@ Queue<Item>::DoEnqueue (ConstIterator pos, Ptr<Item> item)
 {
   NS_LOG_FUNCTION (this << item);
 
-  if (GetCurrentSize () + item > GetMaxSize ())
+  uint16_t priority = Classify (p);
+
+  std::cout << GetNBytes () + item->GetSize() << " and " <<m_maxBytes * 0.8 << std::endl;
+
+  if (GetNBytes () + item->GetSize() >= m_maxBytes * 0.5)
     {
-      NS_LOG_LOGIC ("Queue full -- dropping pkt");
-      DropBeforeEnqueue (item);
-      return false;
+      NS_LOG_LOGIC ("SRAM Queue full -- moving pkt in DRAM");
+      //DropBeforeEnqueue (item);
+      SendIntoDramqueue(item);
+      //return true;
     }
+  else{
+      m_packets.insert (pos, item);
 
-  m_packets.insert (pos, item);
+      uint32_t size = item->GetSize ();
+      m_nBytes += size;
+      m_nTotalReceivedBytes += size;
 
-  uint32_t size = item->GetSize ();
-  m_nBytes += size;
-  m_nTotalReceivedBytes += size;
+      m_nPackets++;
+      m_nTotalReceivedPackets++;
 
-  m_nPackets++;
-  m_nTotalReceivedPackets++;
-
-  NS_LOG_LOGIC ("m_traceEnqueue (p)");
-  m_traceEnqueue (item);
+      NS_LOG_LOGIC ("m_traceEnqueue (p)");
+      m_traceEnqueue (item);
+  }
 
   return true;
 }
@@ -553,8 +463,37 @@ Queue<Item>::DoDequeue (ConstIterator pos)
       NS_LOG_LOGIC ("m_traceDequeue (p)");
       m_traceDequeue (item);
     }
+  std::cout << "Cur SRAM content: " << m_nPackets << " SIZE: " << m_nBytes << std::endl;
+
+  //make sure the sram queue was only used 0.2
+  if(m_nBytes_dram.Get() > 0 || m_nBytes.Get() < m_maxBytes * 0.5){
+      DoDramDequeue();
+  }
   return item;
 }
+
+
+template <typename Item>
+void
+Queue<Item>::DoDramDequeue()
+{
+
+    if (m_nPackets_dram.Get () == 0)
+    {
+        NS_LOG_LOGIC ("Queue empty");
+        return;
+    }
+
+    Ptr<Item> item = m_packets_dram.front();
+    m_packets_dram.pop_front();
+    m_nPackets_dram--;
+    m_nBytes_dram -= item->GetSize();
+    std::cout << "DRAM has " << m_nPackets_dram.Get() <<" packets!" <<std::endl;
+    std::cout << "Cur DRAM content: " << m_nPackets_dram << std::endl;
+
+    DoEnqueue(Tail(), item);
+}
+
 
 template <typename Item>
 Ptr<Item>
@@ -626,21 +565,43 @@ typename Queue<Item>::ConstIterator Queue<Item>::Tail (void) const
   return m_packets.cend ();
 }
 
+
 template <typename Item>
 void
 Queue<Item>::DropBeforeEnqueue (Ptr<Item> item)
 {
   NS_LOG_FUNCTION (this << item);
 
-  m_nTotalDroppedPackets++;
-  m_nTotalDroppedPacketsBeforeEnqueue++;
-  m_nTotalDroppedBytes += item->GetSize ();
-  m_nTotalDroppedBytesBeforeEnqueue += item->GetSize ();
-
   NS_LOG_LOGIC ("m_traceDropBeforeEnqueue (p)");
   m_traceDrop (item);
   m_traceDropBeforeEnqueue (item);
 }
+
+
+template <typename Item>
+void
+Queue<Item>::SendIntoDramqueue (Ptr <Item> item)
+{
+    NS_LOG_FUNCTION (this << item);
+
+    std::cout << GetCurrentDRAMSize()+ item->GetSize() << " and " << m_maxBytes_dram << std::endl;
+
+    if(GetCurrentDRAMSize()+ item->GetSize() > m_maxBytes_dram){
+        NS_LOG_LOGIC ("DRAM is Full, Must Drop Packet!");
+        return;
+    }
+
+    m_nSendpktInDram++;
+    m_nSendBytesInDram += item->GetSize ();
+    m_nTotalSendPktIndRram++;
+    m_nTotalSendByteIndRram += item->GetSize ();
+
+    m_packets_dram.push_back(item);
+    m_nPackets_dram ++;
+    m_nBytes_dram += item->GetSize();
+    std::cout<<"There are "<<m_nSendpktInDram<<" Packets has been send into DRAM" <<std::endl;
+}
+
 
 template <typename Item>
 void
@@ -657,6 +618,81 @@ Queue<Item>::DropAfterDequeue (Ptr<Item> item)
   m_traceDrop (item);
   m_traceDropAfterDequeue (item);
 }
+
+
+template <typename Item>
+void
+Queue<Item>::DropAfterDequeueDram (Ptr<Item> item)
+{
+    NS_LOG_FUNCTION (this << item);
+
+    m_nTotalDroppedPackets++;
+    m_nTotalDroppedPacketsAfterDequeue++;
+    m_nTotalDroppedBytes += item->GetSize ();
+    m_nTotalDroppedBytesAfterDequeue += item->GetSize ();
+
+    NS_LOG_LOGIC ("DropAfterDequeueDram (p)");
+    m_traceDrop (item);
+    m_traceDropAfterDequeue (item);
+}
+
+
+template <typename Item>
+uint16_t
+PriorityQueue::Classify (Ptr<Item> item)
+{
+    NS_LOG_FUNCTION (this << item);
+    UdpHeader ppp;
+    p->RemoveHeader (ppp);
+    Ipv4Header ip;
+    p->RemoveHeader (ip);
+
+    uint16_t priority;
+    uint32_t protocol = ip.GetProtocol();
+
+    if (protocol == 17)
+    {
+        UdpHeader udp;
+        p->PeekHeader (udp);
+
+        if (udp.GetDestinationPort() == m_priorityPort)
+        {
+            NS_LOG_INFO ("\tclassifier: high priority udp");
+            priority = 1;
+        }
+        else
+        {
+            NS_LOG_INFO ("\tclassifier: low priority udp");
+            priority = 0;
+        }
+    }
+    else if (protocol == 6)
+    {
+        TcpHeader tcp;
+        p->PeekHeader (tcp);
+        if (tcp.GetDestinationPort() == m_priorityPort)
+        {
+            NS_LOG_INFO ("\tclassifier: high priority tcp");
+            priority = 1;
+        }
+        else
+        {
+            NS_LOG_INFO ("\tclassifier: low priority tcp");
+            priority = 0;
+        }
+    }
+    else
+    {
+        NS_LOG_INFO ("\tclassifier: unrecognized transport protocol");
+        priority = 0;
+    }
+
+    p->AddHeader (ip);
+    p->AddHeader (ppp);
+
+    return priority;
+}
+
 
 } // namespace ns3
 
